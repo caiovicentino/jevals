@@ -8,7 +8,7 @@ from .._text import truncate
 from .._types import Answer, Noul, Question
 from ._detect import detect_phi, detect_pii, detect_secrets, redact
 
-Surface = str  # "input" | "output" | "tool_result" | "all"
+Surface = str  # "input" | "output" | "tool_result" | "text" | "all"
 
 
 def _default_surface(s: Sample) -> Surface:
@@ -21,6 +21,8 @@ def _default_surface(s: Sample) -> Surface:
         return "output"
     if s.get("input") is not None:
         return "input"
+    if s.get("text") is not None:
+        return "text"
     return "output"
 
 
@@ -34,8 +36,17 @@ def _surface_text(s: Sample, surface: Surface | None) -> str:
     if surface == "tool_result":
         tr = s.tool_result
         return str(tr) if tr is not None else ""
+    if surface == "text":
+        t = s.get("text")
+        return str(t) if t is not None else ""
     parts = [*s.user_messages, s.final_answer, *(str(r) for r in s.tool_results)]
     return "\n\n".join(p for p in parts if p)
+
+
+def _applicable_without_trace(ev: Eval, s: Sample) -> tuple[bool, str]:
+    """There is text to scan, so a message trace isn't needed. Other requirements still apply."""
+    missing = [k for k in ev.requires if k != "messages" and not s.has(k)]
+    return (False, f"missing {', '.join(missing)}") if missing else (True, "")
 
 
 # --------------------------------------------------------------------------- injection family
@@ -80,8 +91,10 @@ class IndirectInjection(NoulEval):
         self.surface = surface
 
     def applicable(self, s: Sample) -> tuple[bool, str]:
+        if _surface_text(s, self.surface):
+            return _applicable_without_trace(self, s)
         ok, why = super().applicable(s)
-        if ok and self.surface == "tool_result" and not _surface_text(s, self.surface):
+        if ok and self.surface == "tool_result":
             return False, "no tool result"
         return ok, why
 
@@ -195,6 +208,12 @@ class PII(Eval):
 
     def _text(self, s: Sample) -> str:
         return _surface_text(s, self.surface)
+
+    def applicable(self, s: Sample) -> tuple[bool, str]:
+        # A tool result or a bare payload comes with no message trace. Scan it anyway.
+        if self._text(s):
+            return _applicable_without_trace(self, s)
+        return super().applicable(s)
 
     def _entities(self, s: Sample) -> list[dict[str, Any]]:
         ents = detect_pii(self._text(s))
@@ -333,6 +352,12 @@ class SecretsExposure(Eval):
 
     def _text(self, s: Sample) -> str:
         return _surface_text(s, self.surface)
+
+    def applicable(self, s: Sample) -> tuple[bool, str]:
+        # A tool result or a bare payload comes with no message trace. Scan it anyway.
+        if self._text(s):
+            return _applicable_without_trace(self, s)
+        return super().applicable(s)
 
     def pre(self, s: Sample) -> Result | None:
         ents = detect_secrets(self._text(s))

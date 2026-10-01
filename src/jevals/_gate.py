@@ -208,7 +208,6 @@ def gate(
                     "name": fn.__name__,
                     "args": {k: v for k, v in kw.items() if _jsonable(v)},
                 }
-            out.setdefault("messages", [])
             return out
 
         def handle(d: Decision) -> tuple[Any, bool]:

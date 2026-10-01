@@ -22,9 +22,12 @@ from ._docs import llm_docs
 
 def build_server() -> Any:
     try:
-        from mcp.server.fastmcp import FastMCP  # type: ignore
-    except ImportError as e:
-        raise SystemExit('mcp is not installed: pip install "jevals[mcp]"') from e
+        from mcp.server.mcpserver import MCPServer as FastMCP  # type: ignore  # mcp 2.x
+    except ImportError:
+        try:
+            from mcp.server.fastmcp import FastMCP  # type: ignore  # mcp 1.x
+        except ImportError as e:
+            raise SystemExit('mcp is not installed: pip install "jevals[mcp]"') from e
 
     mcp = FastMCP(
         "jevals",
@@ -34,7 +37,16 @@ def build_server() -> Any:
     @mcp.tool()
     def list_evals() -> list[dict[str, Any]]:
         """Every built-in eval: name, category, one-line description, required sample fields."""
-        return [cls().describe() for cls in builtin_evals().values()]
+        # Read the class, like `jevals list`: CustomRubric can't be built without arguments.
+        return [
+            {
+                "name": name,
+                "category": cls.category,
+                "description": cls.description or (cls.__doc__ or "").strip().split("\n")[0],
+                "requires": list(cls.requires),
+            }
+            for name, cls in builtin_evals().items()
+        ]
 
     @mcp.tool()
     def describe_eval(name: str) -> dict[str, Any]:
