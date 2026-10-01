@@ -11,6 +11,7 @@ from jevals.agent import (
     StepProgress,
     ToolCallF1,
     ToolCallRisk,
+    ToolChoice,
     TrajectoryMatch,
 )
 from jevals.quality import (
@@ -207,6 +208,25 @@ def test_phi_needs_health_context():
     )
     r = evaluate({"output": "Order A123 shipped."}, [PHI()], backend=MockBackend())
     assert r.phi.passed is True and not r.phi.answers
+
+
+def test_block_below_reads_the_safe_score(messages):
+    # block_below is on the 0..1 score where higher is safer. For PII and Secrets the headline
+    # probability is p(bad), and for a choice eval it is p(chosen option).
+    s = {"messages": messages, "output": "Jane Roe, SSN 123-45-6789"}
+    real = MockBackend(answers={"pii.personal": 0.95})
+    placeholder = MockBackend(answers={"pii.personal": 0.05})
+    assert Gate(PII(block_below=0.5), backend=real).check(s).action == "block"
+    assert Gate(PII(block_below=0.5), backend=placeholder).check(s).action == "allow"
+    s = {"messages": messages, "output": "key: AKIAJ7Q2X9LMN4P8R6TB"}
+    assert Gate(SecretsExposure(block_below=0.5), backend=MockBackend()).check(s).action == "block"
+    over = MockBackend(answers={"refusal.kind": {"over_refusal": 0.9, "answered": 0.1}})
+    s = {"input": "How do I reset my password?", "output": "Sorry, I can't help with that."}
+    assert Gate(Refusal(block_below=0.5), backend=over).check(s).action == "block"
+    wrong = MockBackend(answers={"tool_choice.q": {"wrong_tool": 0.9, "correct": 0.1}})
+    s = {"messages": messages}
+    assert Gate(ToolChoice(block_below=0.5), backend=wrong).check(s).action == "block"
+    assert Gate(ToolChoice(escalate_below=0.5), backend=wrong).check(s).action == "escalate"
 
 
 def test_secrets_structured_vs_generic():

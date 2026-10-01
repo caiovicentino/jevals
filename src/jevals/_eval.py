@@ -103,17 +103,19 @@ class Eval:
         return None
 
     def decide(self, r: Result, s: Sample) -> Action | None:
-        """Gate policy. Default: use block_below / escalate_below on the headline value."""
-        v = r.probability if r.probability is not None else r.score
-        if v is None:
-            return None
-        if self.block_above is not None and v >= self.block_above:
+        """Gate policy. block_below / escalate_below read the 0..1 score where higher is safer;
+        block_above / escalate_above read the headline probability."""
+        # For PII, Secrets and Hallucination the probability is p(bad), and for choice evals it is
+        # p(chosen option), so the *_below knobs can't use it.
+        safe = r.score if r.score is not None else r.probability
+        head = r.probability if r.probability is not None else r.score
+        if self.block_above is not None and head is not None and head >= self.block_above:
             return "block"
-        if self.block_below is not None and v < self.block_below:
+        if self.block_below is not None and safe is not None and safe < self.block_below:
             return "block"
-        if self.escalate_above is not None and v >= self.escalate_above:
+        if self.escalate_above is not None and head is not None and head >= self.escalate_above:
             return "escalate"
-        if self.escalate_below is not None and v < self.escalate_below:
+        if self.escalate_below is not None and safe is not None and safe < self.escalate_below:
             return "escalate"
         return None
 
