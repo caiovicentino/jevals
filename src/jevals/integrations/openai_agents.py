@@ -13,6 +13,7 @@ agent = Agent(
 
 from __future__ import annotations
 
+import copy
 import inspect
 import json
 from collections.abc import Callable, Sequence
@@ -138,13 +139,11 @@ def _guard_one(tool: Any, before: Gate | None, after: Gate | None, on_escalate: 
                 return d.value
         return result
 
-    return FunctionTool(
-        name=tool.name,
-        description=tool.description,
-        params_json_schema=tool.params_json_schema,
-        on_invoke_tool=on_invoke,
-        strict_json_schema=getattr(tool, "strict_json_schema", True),
-    )
+    # Copy the tool so needs_approval, is_enabled, tool guardrails and timeouts carry over.
+    # A shallow copy doesn't call __init__, so FunctionTool subclasses with their own work too.
+    guarded = copy.copy(tool)
+    guarded.on_invoke_tool = on_invoke
+    return guarded
 
 
 def trace_from_result(result: Any, agent: Any = None) -> dict[str, Any]:
